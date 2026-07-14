@@ -56,16 +56,15 @@
 </main>
 
 <script>
-    // 1. INSIRA AQUI O SEU LINK DO GOOGLE SHEETS PUBLICADO COMO CSV
+    // Link do seu Google Sheets já configurado como CSV
     const URL_PLANILHA = "https://docs.google.com/spreadsheets/d/e/2PACX-1vQkcvnVFTlaGC14SKOVuxP0CqFnis8tsoWfAJ3lJ_yGJiLJ68CU2mPMaaZDC3i24w/pub?output=csv";
 
     let bancoDeDados = []; // Armazenará todos os alunos processados
 
-    // 2. Função auxiliar para converter os IDs do Drive para Links Diretos de Imagem
+    // Função para converter IDs ou links do Google Drive para links diretos de imagens exibíveis
     function formatarLinkFoto(idOriginal) {
         if (!idOriginal || idOriginal.trim() === "") return "";
         
-        // Se já for um link inteiro do Drive, tenta extrair apenas o ID dele
         let id = idOriginal;
         const regexId = /\/d\/([a-zA-Z0-9_-]+)/;
         const match = idOriginal.match(regexId);
@@ -75,89 +74,86 @@
             id = idOriginal.split("id=")[1].split("&")[0];
         }
         
-        // Limpa possíveis espaços ou aspas residuais no ID
         id = id.trim().replace(/['"]/g, "");
-
-        // Retorna o formato direto de imagem aceito pelo HTML
         return `https://lh3.googleusercontent.com/u/0/d/${id}`;
     }
 
-    // 3. Função para processar o CSV de forma mais segura
-function processarCSV(texto) {
-    const linhas = texto.split(/\r?\n/); // Trata quebras de linha do Windows e Linux
-    const resultados = [];
-
-    // Se o arquivo começar com código HTML (como "<!DOCTYPE html"), o link está errado!
-    if (texto.trim().startsWith("<!DOCTYPE") || texto.trim().startsWith("<html")) {
-        throw new Error("O link fornecido não é um CSV válido. É uma página web.");
-    }
-
-    // Detecta se o seu Google Sheets está usando vírgula (,) ou ponto e vírgula (;)
-    const primeiraLinha = linhas[0];
-    const separador = primeiraLinha.includes(";") ? ";" : ",";
-
-    for (let i = 1; i < linhas.length; i++) {
-        if (!linhas[i].trim()) continue;
-        
-        // Divide as colunas usando o separador correto encontrado
-        const colunas = linhas[i].split(separador).map(c => c.trim().replace(/^"|"$/g, ''));
-        
-        if (colunas.length > 1) {
-            resultados.push({
-                nome: colunas[0] || "Sem Nome",
-                matricula: colunas[1] || "",
-                turma: colunas[2] || "Sem Turma",
-                turno: colunas[3] || "Integral",
-                fotoId: colunas[4] || "" 
-            });
+    // Processamento do CSV inteligente (identificando quebras de linha e separadores)
+    function processarCSV(texto) {
+        if (texto.trim().startsWith("<!DOCTYPE") || texto.trim().startsWith("<html")) {
+            throw new Error("O link configurado não é um CSV válido. Verifique se publicou a planilha corretamente na web.");
         }
-    }
-    return resultados;
-}
 
-    // 4. Carrega a planilha automaticamente ao abrir o site
+        const linhas = texto.split(/\r?\n/); 
+        const resultados = [];
+
+        if (linhas.length === 0 || !linhas[0].trim()) {
+            throw new Error("A planilha lida está vazia.");
+        }
+
+        // Detecta se o separador da planilha do Google é vírgula ou ponto e vírgula
+        const primeiraLinha = linhas[0];
+        const separador = primeiraLinha.includes(";") ? ";" : ",";
+
+        // Mapeamento dinâmico baseado na ordem de suas colunas no Sheets
+        for (let i = 1; i < linhas.length; i++) {
+            if (!linhas[i].trim()) continue;
+            
+            const colunas = linhas[i].split(separador).map(c => c.trim().replace(/^"|"$/g, ''));
+            
+            if (colunas.length > 1) {
+                resultados.push({
+                    nome: colunas[0] || "Sem Nome",
+                    matricula: colunas[1] || "",
+                    turma: colunas[2] || "Sem Turma",
+                    turno: colunas[3] || "Integral", 
+                    fotoId: colunas[4] || "" 
+                });
+            }
+        }
+        return resultados;
+    }
+
+    // Carrega a planilha automaticamente ao inicializar
     async function carregarDados() {
         const container = document.getElementById("carometro-content");
         try {
             const resposta = await fetch(URL_PLANILHA);
-            if (!resposta.ok) throw new Error("Erro ao carregar a planilha");
+            if (!resposta.ok) throw new Error("Erro na rede ao tentar acessar o arquivo.");
             
             const textoCSV = await resposta.text();
             bancoDeDados = processarCSV(textoCSV);
 
             if (bancoDeDados.length === 0) {
-                container.innerHTML = `<div style="text-align: center; color: red; padding: 50px;">A planilha está vazia ou não pôde ser lida.</div>`;
+                container.innerHTML = `<div style="text-align: center; color: red; padding: 50px;">Nenhum registro de aluno foi encontrado na planilha.</div>`;
                 return;
             }
 
-            // Descobre quais são as turmas únicas existentes para montar o Menu Select
-            const turmasUnicas = [...new Set(bancoDeDados.map(aluno => aluno.turma))].sort();
+            // Descobre as turmas únicas existentes e ordena alfabeticamente
+            const turmasUnicas = [...new Set(bancoDeDados.map(aluno => aluno.turma))].filter(Boolean).sort();
             
-            // Popula o Menu de Seleção (Selector)
             const selector = document.getElementById("classSelector");
             selector.innerHTML = '<option value="">Selecione uma turma...</option>';
             turmasUnicas.forEach(turma => {
-                if (turma) {
-                    const opt = document.createElement("option");
-                    opt.value = turma;
-                    opt.textContent = turma;
-                    selector.appendChild(opt);
-                }
+                const opt = document.createElement("option");
+                opt.value = turma;
+                opt.textContent = turma;
+                selector.appendChild(opt);
             });
 
-            container.innerHTML = `<div style="text-align: center; padding: 50px; font-size: 18px; color: #4a5568;">Por favor, selecione uma turma acima para carregar as fotos.</div>`;
+            container.innerHTML = `<div style="text-align: center; padding: 50px; font-size: 18px; color: #4a5568;">Por favor, selecione uma turma acima para carregar os dados.</div>`;
 
         } catch (erro) {
             console.error(erro);
             container.innerHTML = `
-                <div style="text-align: center; color: red; padding: 50px;">
-                    <p>Não foi possível acessar a planilha do Google Drive.</p>
-                    <small style="color: #718096; display: block; margin-top: 10px;">Verifique se você publicou a planilha corretamente como CSV e atualizou a variável URL_PLANILHA no código.</small>
+                <div style="text-align: center; color: #e53e3e; padding: 50px;">
+                    <p style="font-weight: bold; font-size: 18px;">Erro de Configuração Detectado</p>
+                    <p style="margin-top: 10px; color: #4a5568; font-size: 15px;">O site não pôde ler sua planilha do Google Drive.</p>
                 </div>`;
         }
     }
 
-    // 5. Atualiza a tela quando o usuário muda a turma no Menu
+    // Renderiza dinamicamente os cartões dos alunos na tela
     function changeClass(turmaSelecionada) {
         const container = document.getElementById("carometro-content");
         if (!turmaSelecionada) {
@@ -165,10 +161,8 @@ function processarCSV(texto) {
             return;
         }
 
-        // Filtra os alunos que pertencem à turma selecionada
         const alunosFiltrados = bancoDeDados.filter(aluno => aluno.turma === turmaSelecionada);
 
-        // Monta o cabeçalho da turma e a Grid dos Cards
         let htmlCards = `
             <div class="turma-container active">
                 <h2 class="turma-title">${turmaSelecionada} <span style="font-size: 14px; font-weight: normal; color: #718096;">(${alunosFiltrados.length} estudantes)</span></h2>
@@ -198,7 +192,6 @@ function processarCSV(texto) {
         container.innerHTML = htmlCards;
     }
 
-    // Executa a carga inicial quando o navegador termina de renderizar a página
     window.onload = carregarDados;
 </script>
 </body>
